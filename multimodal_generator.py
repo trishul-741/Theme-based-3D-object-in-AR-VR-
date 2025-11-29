@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-Enhanced Multimodal 3D Generator with Perfect Color Support
+Enhanced Multimodal 3D Generator with Custom Color Input
 ===========================================================
 Features:
-- Intelligent automatic color generation
-- Multi-source color extraction (text + images)
+- USER-SPECIFIED color input (primary feature)
+- Optional automatic color generation as fallback
+- Multi-source color extraction (text + images) - optional
 - Vertex coloring + UV texture mapping
 - Perfect GLB export for AR with color preservation
-- Theme-based generation with rich color palettes
 """
 
 import torch
@@ -61,8 +61,40 @@ class ColorPalette:
     }
     
     @staticmethod
+    def parse_custom_colors(custom_colors: Union[str, List]) -> List[Tuple[int, int, int]]:
+        """Parse user-provided custom colors"""
+        parsed_colors = []
+        
+        if isinstance(custom_colors, str):
+            color_parts = [c.strip() for c in custom_colors.split(',')]
+        elif isinstance(custom_colors, list):
+            color_parts = custom_colors
+        else:
+            return []
+        
+        for color in color_parts:
+            if isinstance(color, tuple) and len(color) == 3:
+                parsed_colors.append(color)
+            elif isinstance(color, str):
+                if color.startswith('#'):
+                    try:
+                        hex_color = color.lstrip('#')
+                        rgb = tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+                        parsed_colors.append(rgb)
+                    except:
+                        logger.warning(f"Invalid hex color: {color}")
+                else:
+                    color_lower = color.lower()
+                    if color_lower in ColorPalette.COLOR_NAMES:
+                        parsed_colors.append(ColorPalette.COLOR_NAMES[color_lower])
+                    else:
+                        logger.warning(f"Unknown color name: {color}")
+        
+        return parsed_colors
+    
+    @staticmethod
     def extract_colors_from_text(text: str) -> List[Tuple[int, int, int]]:
-        """Extract color names from text"""
+        """Extract color names from text (optional fallback)"""
         text_lower = text.lower()
         found_colors = []
         
@@ -77,7 +109,7 @@ class ColorPalette:
         images: List[Image.Image],
         n_colors: int = 5
     ) -> List[Tuple[int, int, int]]:
-        """Extract dominant colors from reference images using K-means"""
+        """Extract dominant colors from reference images (optional fallback)"""
         all_pixels = []
         
         for img in images:
@@ -125,34 +157,55 @@ class ColorPalette:
     def generate_palette(
         text: str,
         images: List[Image.Image],
+        custom_colors: Optional[Union[str, List]] = None,
+        use_image_colors: bool = False,
         n_colors: int = 6
     ) -> Dict[str, Any]:
-        """Generate comprehensive color palette from text and images"""
-        
-        text_colors = ColorPalette.extract_colors_from_text(text)
-        
-        image_colors = []
-        if images:
-            image_colors = ColorPalette.extract_colors_from_images(images, n_colors)
-        
-        theme = ColorPalette.detect_theme_from_text(text)
-        theme_colors = ColorPalette.THEME_PALETTES.get(theme, [(128, 128, 128)])
+        """Generate comprehensive color palette with priority to custom colors"""
         
         palette = []
+        source = "custom"
         
-        if text_colors:
-            palette.extend(text_colors[:3])
+        # PRIORITY 1: Custom colors provided by user
+        if custom_colors:
+            custom_parsed = ColorPalette.parse_custom_colors(custom_colors)
+            if custom_parsed:
+                palette = custom_parsed
+                source = "custom"
+                logger.info(f"🎨 Using {len(palette)} custom colors provided by user")
         
-        if image_colors:
-            palette.extend(image_colors[:3])
+        # PRIORITY 2: Text color extraction (if no custom colors)
+        if not palette:
+            text_colors = ColorPalette.extract_colors_from_text(text)
+            if text_colors:
+                palette = text_colors[:3]
+                source = "text"
+                logger.info(f"🎨 Extracted {len(palette)} colors from text")
         
-        palette.extend(theme_colors[:n_colors - len(palette)])
+        # PRIORITY 3: Image color extraction (only if enabled and no other colors)
+        if not palette and use_image_colors and images:
+            image_colors = ColorPalette.extract_colors_from_images(images, n_colors)
+            if image_colors:
+                palette = image_colors
+                source = "images"
+                logger.info(f"🎨 Extracted {len(palette)} colors from images")
         
+        # PRIORITY 4: Theme-based colors (fallback)
+        if not palette:
+            theme = ColorPalette.detect_theme_from_text(text)
+            theme_colors = ColorPalette.THEME_PALETTES.get(theme, [(128, 128, 128)])
+            palette = theme_colors[:n_colors]
+            source = f"theme:{theme}"
+            logger.info(f"🎨 Using theme-based colors: {theme}")
+        
+        # Ensure we have enough colors
         while len(palette) < n_colors:
-            palette.append(theme_colors[len(palette) % len(theme_colors)])
+            palette.append(palette[len(palette) % len(palette)])
         
+        # Trim to requested number
         palette = palette[:n_colors]
         
+        # Normalize colors for rendering
         palette_normalized = [
             (r/255.0, g/255.0, b/255.0, 1.0) 
             for r, g, b in palette
@@ -161,9 +214,9 @@ class ColorPalette:
         return {
             'palette': palette,
             'palette_normalized': palette_normalized,
-            'theme': theme,
-            'text_colors': text_colors,
-            'image_colors': image_colors,
+            'theme': ColorPalette.detect_theme_from_text(text),
+            'source': source,
+            'custom_colors': custom_colors if custom_colors else None,
             'dominant_color': palette[0] if palette else (128, 128, 128)
         }
     
@@ -186,7 +239,7 @@ class StoryParser:
     OBJECT_KEYWORDS = {
         'furniture': ['chair', 'table', 'desk', 'sofa', 'bed', 'cabinet', 'shelf'],
         'vehicles': ['car', 'truck', 'bike', 'motorcycle', 'bus', 'airplane', 'boat'],
-        'animals': ['dog', 'cat', 'bird', 'lion', 'elephant', 'horse', 'fish', 'dragon'],
+        'animals': ['dog', 'cat', 'bird', 'lion', 'elephant', 'horse', 'fish', 'dragon', 'rabbit', 'tortoise'],
         'architecture': ['house', 'building', 'castle', 'tower', 'bridge', 'temple'],
         'nature': ['tree', 'flower', 'mountain', 'rock', 'plant', 'crystal'],
         'objects': ['cup', 'bottle', 'box', 'ball', 'sword', 'shield', 'lamp', 'vase'],
@@ -218,17 +271,22 @@ class StoryParser:
 
 
 class MultimodalInput:
-    """Container for multimodal input with color intelligence"""
+    """Container for multimodal input with CUSTOM COLOR support"""
     
     def __init__(
         self,
         text_prompt: str,
         reference_images: List[Union[str, Path, Image.Image]] = None,
+        custom_colors: Optional[Union[str, List]] = None,
+        use_image_colors: bool = False,
         image_weights: List[float] = None,
         view_labels: List[str] = None,
         auto_color: bool = True
     ):
+        """Initialize multimodal input with custom color support"""
         self.text_prompt = text_prompt
+        self.custom_colors = custom_colors
+        self.use_image_colors = use_image_colors
         self.auto_color = auto_color
         
         self.story_context = StoryParser.parse_story(text_prompt)
@@ -237,14 +295,18 @@ class MultimodalInput:
         self.image_weights = image_weights or [1.0] * len(self.reference_images)
         self.view_labels = view_labels or [f"view{i}" for i in range(len(self.reference_images))]
         
+        # Generate color palette with priority to custom colors
         self.color_palette = ColorPalette.generate_palette(
             text_prompt,
             self.reference_images,
+            custom_colors=custom_colors,
+            use_image_colors=use_image_colors,
             n_colors=6
         )
         
-        logger.info(f"🎨 Generated color palette: {self.color_palette['theme']} theme")
-        logger.info(f"   Dominant colors: {len(self.color_palette['palette'])} colors")
+        logger.info(f"🎨 Color source: {self.color_palette['source']}")
+        logger.info(f"   Theme: {self.color_palette['theme']}")
+        logger.info(f"   Colors: {len(self.color_palette['palette'])} colors")
         
         self.validate()
     
@@ -280,7 +342,7 @@ class MultimodalGenerator:
         self.output_dir.mkdir(exist_ok=True)
         
         logger.info("=" * 60)
-        logger.info("✅ Enhanced MultimodalGenerator with Color Support")
+        logger.info("✅ Enhanced MultimodalGenerator with Custom Color Support")
         logger.info(f"   Device: {self.device}")
         logger.info("=" * 60)
     
@@ -298,7 +360,7 @@ class MultimodalGenerator:
         logger.info("=" * 60)
         logger.info(f"Theme: {multimodal_input.text_prompt[:80]}...")
         logger.info(f"Object: {multimodal_input.story_context['primary_object']}")
-        logger.info(f"Color Theme: {multimodal_input.color_palette['theme']}")
+        logger.info(f"Color Source: {multimodal_input.color_palette['source']}")
         logger.info(f"Reference Images: {len(multimodal_input.reference_images)}")
         logger.info("=" * 60)
         
@@ -311,19 +373,20 @@ class MultimodalGenerator:
                 multimodal_input.story_context
             )
             
-            logger.info("[2/5] Applying intelligent vertex colors...")
+            logger.info("[2/5] Applying custom vertex colors...")
             mesh = self._apply_vertex_colors(
                 mesh,
                 multimodal_input.color_palette,
                 multimodal_input.story_context
             )
             
-            logger.info("[3/5] Creating high-quality texture map...")
+            logger.info("[3/5] Creating custom texture map...")
             mesh = self._apply_intelligent_texture(
                 mesh,
                 multimodal_input.reference_images,
                 multimodal_input.color_palette,
-                high_quality=high_quality
+                high_quality=high_quality,
+                use_image_colors=multimodal_input.use_image_colors
             )
             
             logger.info("[4/5] Saving outputs with color preservation...")
@@ -507,17 +570,22 @@ class MultimodalGenerator:
         mesh: trimesh.Trimesh,
         reference_images: List[Image.Image],
         color_palette: Dict[str, Any],
-        high_quality: bool = True
+        high_quality: bool = True,
+        use_image_colors: bool = False
     ) -> trimesh.Trimesh:
-        """Create intelligent UV-mapped texture"""
+        """Create intelligent UV-mapped texture using CUSTOM COLORS"""
         
         if not hasattr(mesh.visual, 'uv') or mesh.visual.uv is None:
             mesh = self._create_uv_mapping(mesh)
         
         texture_size = 2048 if high_quality else 1024
+        
+        # Only use image textures if explicitly requested
+        images_to_use = reference_images if use_image_colors else []
+        
         texture = self._generate_intelligent_texture(
             texture_size,
-            reference_images,
+            images_to_use,
             color_palette
         )
         
@@ -534,7 +602,7 @@ class MultimodalGenerator:
             material=material
         )
         
-        logger.info(f"  ✅ Applied {texture_size}x{texture_size} texture map")
+        logger.info(f"  ✅ Applied {texture_size}x{texture_size} custom color texture")
         return mesh
     
     def _create_uv_mapping(self, mesh: trimesh.Trimesh) -> trimesh.Trimesh:
@@ -640,10 +708,12 @@ class MultimodalGenerator:
         palette_img.save(palette_path)
         outputs['palette'] = palette_path
         
+        # Save Metadata
         metadata = {
             'text_prompt': multimodal_input.text_prompt,
             'object': multimodal_input.story_context['primary_object'],
             'color_theme': multimodal_input.color_palette['theme'],
+            'color_source': multimodal_input.color_palette['source'],
             'color_palette': [
                 {
                     'rgb': [int(c) for c in color],
@@ -672,6 +742,9 @@ class MultimodalGenerator:
         height = 100
         
         img = Image.new('RGB', (width, height))
+        if not colors:
+            return img
+            
         color_width = width // len(colors)
         
         for i, color in enumerate(colors):
@@ -702,26 +775,33 @@ class MultimodalGenerator:
                 output_dir=self.output_dir
             )
             
-            logger.info(f"  ✅ AR package created: {ar_result['ar_url']}")
+            logger.info(f"  ✅ AR package created: {ar_result.get('ar_url', 'Unknown URL')}")
             return ar_result
             
+        except ImportError:
+            logger.warning("  ⚠️ ar_vr_viewer module not found. Skipping AR package generation.")
+            return {}
         except Exception as e:
-            logger.warning(f"AR package failed: {e}")
+            logger.warning(f"  ⚠️ AR package generation failed: {e}")
             return {}
 
 
 def generate_from_multimodal(
     text_prompt: str,
     reference_images: List[Union[str, Path, Image.Image]] = None,
+    custom_colors: Optional[Union[str, List]] = None,
     output_prefix: str = "colored_model",
     export_ar: bool = True,
-    high_quality: bool = True
+    high_quality: bool = True,
+    use_image_colors: bool = False
 ) -> Dict[str, Any]:
-    """Generate fully colored 3D model for AR from text and images"""
+    """Wrapper function for easy generation"""
     
     multimodal_input = MultimodalInput(
         text_prompt=text_prompt,
         reference_images=reference_images or [],
+        custom_colors=custom_colors,
+        use_image_colors=use_image_colors,
         auto_color=True
     )
     
@@ -735,5 +815,12 @@ def generate_from_multimodal(
 
 
 if __name__ == "__main__":
-    print("Enhanced Multimodal 3D Generator with Perfect Colors")
-    print("Use generate_from_multimodal() for easy generation")
+    print("Enhanced Multimodal 3D Generator with Custom Colors")
+    print("Use generate_from_multimodal() or the Streamlit app to run.")
+    
+    # Example Usage for testing
+    # generate_from_multimodal(
+    #     text_prompt="A futuristic racing car",
+    #     custom_colors=['#FF0000', 'black', '#CCCCCC'], # User specified colors
+    #     output_prefix="test_car"
+    # )

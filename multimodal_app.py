@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Streamlit App for Enhanced Multimodal 3D Generator with Perfect Colors
+Streamlit App for Enhanced Multimodal 3D Generator with CUSTOM COLORS
 """
 
 import streamlit as st
@@ -13,7 +13,7 @@ import traceback
 
 # Configure page
 st.set_page_config(
-    page_title="Multimodal 3D Generator with Colors",
+    page_title="Multimodal 3D Generator - Custom Colors",
     page_icon="🎨",
     layout="wide"
 )
@@ -28,13 +28,31 @@ def load_generator(_model_manager):
     """Create generator instance with cached models"""
     return MultimodalGenerator()
 
+def parse_color_input(color_str):
+    """Helper to parse manual color input"""
+    try:
+        colors = []
+        for part in color_str.split(','):
+            part = part.strip()
+            if part.startswith('#'):
+                colors.append(part)
+            elif part.startswith('('):
+                # Parse RGB tuple
+                rgb = eval(part)
+                colors.append(rgb)
+            else:
+                colors.append(part)
+        return colors
+    except:
+        return None
+
 def main():
-    st.title("🎨 Multimodal 3D Generator with Perfect Colors")
+    st.title("🎨 Multimodal 3D Generator - Custom Color Control")
     st.markdown("""
-    Generate **fully colored 3D models** for AR from text themes and reference images.
-    - **Automatic color generation** if not specified
-    - **Intelligent palette extraction** from images
-    - **Perfect AR display** with rich colors
+    Generate **fully colored 3D models** for AR with YOUR CUSTOM COLORS!
+    - ✅ **Specify your own colors** (primary feature)
+    - ✅ **Reference images** for shape only (not color)
+    - ✅ **Perfect AR display** with your chosen colors
     """)
     
     # Load models once (cached)
@@ -58,44 +76,114 @@ def main():
     col1, col2 = st.columns([1, 1])
     
     with col1:
-        st.header("📝 Input")
+        st.header("🔧 Input")
         
         # Text prompt input
         text_prompt = st.text_area(
-            "Text Prompt / Story / Theme",
-            height=150,
+            "Text Prompt / Description",
+            height=120,
             placeholder="Examples:\n"
-            "- A red sports car with sleek design\n"
-            "- A mystical dragon with golden scales\n"
-            "- A wooden chair with blue cushion\n"
+            "- A sports car with sleek design\n"
+            "- A mystical dragon\n"
+            "- A modern chair\n"
             "- A futuristic robot warrior\n\n"
-            "Colors will be auto-generated if not specified!",
-            help="Describe the object you want to create. Mention colors for specific control, or leave them out for automatic intelligent coloring."
+            "Describe the SHAPE - specify colors below!",
+            help="Describe the object shape and style. Colors will be taken from your custom color palette below."
         )
+        
+        # ====== NEW: CUSTOM COLOR INPUT SECTION ======
+        st.subheader("🎨 Custom Color Palette")
+        
+        color_mode = st.radio(
+            "Color Source:",
+            ["Custom Colors (You Choose)", "Auto-generate from Text", "Extract from Images"],
+            help="Choose how you want to specify colors for your 3D model"
+        )
+        
+        custom_colors = None
+        use_image_colors = False
+        
+        if color_mode == "Custom Colors (You Choose)":
+            st.markdown("**Choose Your Colors:**")
+            
+            # Method 1: Color pickers
+            with st.expander("🎨 Visual Color Picker (Recommended)", expanded=True):
+                col_a, col_b, col_c = st.columns(3)
+                
+                with col_a:
+                    color1 = st.color_picker("Color 1 (Primary)", "#FF0000")
+                    color2 = st.color_picker("Color 2", "#00FF00")
+                
+                with col_b:
+                    color3 = st.color_picker("Color 3", "#0000FF")
+                    color4 = st.color_picker("Color 4", "#FFFF00")
+                
+                with col_c:
+                    color5 = st.color_picker("Color 5", "#FF00FF")
+                    color6 = st.color_picker("Color 6", "#00FFFF")
+                
+                custom_colors = [color1, color2, color3, color4, color5, color6]
+                
+                # Show preview
+                st.markdown("**Your Palette Preview:**")
+                palette_html = "".join([
+                    f'<div style="display:inline-block; width:50px; height:50px; '
+                    f'background-color:{c}; margin:5px; border:2px solid #ddd; '
+                    f'border-radius:8px;"></div>'
+                    for c in custom_colors
+                ])
+                st.markdown(palette_html, unsafe_allow_html=True)
+            
+            # Method 2: Manual text input (alternative)
+            with st.expander("✍️ Manual Color Input (Advanced)"):
+                manual_colors = st.text_input(
+                    "Enter colors (comma-separated)",
+                    placeholder="Examples: red, blue, green OR #FF0000, #00FF00, #0000FF",
+                    help="Enter color names or hex codes separated by commas"
+                )
+                
+                if manual_colors:
+                    parsed = parse_color_input(manual_colors)
+                    if parsed:
+                        custom_colors = parsed
+                        st.success(f"✅ Parsed {len(parsed)} colors")
+                    else:
+                        st.error("Invalid color format")
+        
+        elif color_mode == "Extract from Images":
+            use_image_colors = True
+            st.info("📸 Colors will be extracted from reference images below")
+        
+        else:  # Auto-generate
+            st.info("🤖 Colors will be auto-generated from text description")
+        
+        # ====== END CUSTOM COLOR SECTION ======
         
         # Reference images
         st.subheader("🖼️ Reference Images (Optional)")
+        st.caption("Images are used for SHAPE reference only (unless 'Extract from Images' selected above)")
+        
         uploaded_files = st.file_uploader(
-            "Upload 1-5 reference images for style/color/theme",
+            "Upload 1-5 reference images for shape/style",
             type=['png', 'jpg', 'jpeg'],
             accept_multiple_files=True,
-            help="Images will be used to extract colors and style. Works great with or without images!"
+            help="Images guide the shape and structure. Colors come from your palette above!"
         )
         
-        # Display uploaded images - FIXED
+        # Display uploaded images
         if uploaded_files:
             st.write(f"📷 {len(uploaded_files)} image(s) uploaded")
             preview_cols = st.columns(min(len(uploaded_files), 3))
             for i, uploaded_file in enumerate(uploaded_files[:3]):
                 with preview_cols[i]:
                     img = Image.open(uploaded_file)
-                    st.image(img, caption=f"Image {i+1}")  # FIXED: Removed width parameter
+                    st.image(img, caption=f"Image {i+1}")
         
         # Advanced options
         with st.expander("⚙️ Advanced Options"):
             output_name = st.text_input(
                 "Output Name",
-                value="colored_model",
+                value="custom_colored_model",
                 help="Name for output files"
             )
             
@@ -113,7 +201,7 @@ def main():
         
         # Generate button
         generate_button = st.button(
-            "🚀 Generate 3D Model",
+            "🚀 Generate 3D Model with Custom Colors",
             type="primary",
             use_container_width=True
         )
@@ -124,7 +212,11 @@ def main():
         if generate_button:
             # Validation
             if not text_prompt or not text_prompt.strip():
-                st.error("❌ Please enter a text prompt/theme")
+                st.error("❌ Please enter a text prompt/description")
+                st.stop()
+            
+            if color_mode == "Custom Colors (You Choose)" and not custom_colors:
+                st.error("❌ Please select colors using the color picker above")
                 st.stop()
             
             # Convert uploaded files to PIL Images
@@ -138,20 +230,22 @@ def main():
                         st.warning(f"⚠️ Failed to load {uploaded_file.name}: {e}")
             
             try:
-                # Create multimodal input
-                with st.spinner("🎨 Preparing multimodal input..."):
+                # Create multimodal input with CUSTOM COLORS
+                with st.spinner("🎨 Preparing input with your custom colors..."):
                     multimodal_input = MultimodalInput(
                         text_prompt=text_prompt,
                         reference_images=reference_images,
-                        auto_color=True
+                        custom_colors=custom_colors,  # YOUR COLORS!
+                        use_image_colors=use_image_colors,
+                        auto_color=(color_mode == "Auto-generate from Text")
                     )
                 
                 # Display detected information
                 st.info(f"🎯 Detected Object: **{multimodal_input.story_context['primary_object']}**")
-                st.info(f"🎨 Color Theme: **{multimodal_input.color_palette['theme']}**")
+                st.info(f"🎨 Color Source: **{multimodal_input.color_palette['source']}**")
                 
                 # Display color palette
-                st.subheader("🌈 Generated Color Palette")
+                st.subheader("🌈 Your Color Palette")
                 palette_cols = st.columns(len(multimodal_input.color_palette['palette']))
                 for i, color in enumerate(multimodal_input.color_palette['palette']):
                     with palette_cols[i]:
@@ -165,7 +259,7 @@ def main():
                         st.caption(hex_color)
                 
                 # Generate 3D model
-                with st.spinner("🔄 Generating 3D model with colors... This may take 1-3 minutes..."):
+                with st.spinner("🔄 Generating 3D model with your colors... This may take 1-3 minutes..."):
                     outputs = generator.process_multimodal_input(
                         multimodal_input,
                         output_prefix=output_name,
@@ -193,16 +287,16 @@ def main():
                 if 'obj' in outputs:
                     st.info(f"✅ **OBJ Model**: `{outputs['obj'].name}`")
                 
-                # Texture - FIXED
+                # Texture
                 if 'texture' in outputs:
                     st.info(f"✅ **Texture**: `{outputs['texture'].name}`")
                     texture_img = Image.open(outputs['texture'])
-                    st.image(texture_img, caption="Applied Texture")  # FIXED: No width parameter
+                    st.image(texture_img, caption="Applied Texture")
                 
-                # Color palette visualization - FIXED
+                # Color palette visualization
                 if 'palette' in outputs:
                     palette_vis = Image.open(outputs['palette'])
-                    st.image(palette_vis, caption="Color Palette")  # FIXED: No width parameter
+                    st.image(palette_vis, caption="Final Color Palette")
                 
                 # Metadata
                 if 'metadata' in outputs:
@@ -271,41 +365,64 @@ def main():
     
     # Sidebar with examples
     with st.sidebar:
-        st.header("💡 Example Prompts")
+        st.header("💡 Usage Guide")
         
         st.markdown("""
-        ### With Color Specification:
-        - "A red sports car with black stripes"
-        - "A blue dragon with golden wings"
-        - "A green bottle with silver cap"
+        ### 🎨 How to Use Custom Colors:
         
-        ### Without Color (Auto-Generated):
-        - "A futuristic robot warrior"
-        - "A mystical fantasy tree"
-        - "A sleek modern chair"
-        - "An ancient treasure chest"
-        
-        ### Theme-Based:
-        - "A cyberpunk motorcycle"
-        - "An elegant Victorian lamp"
-        - "A rustic wooden barrel"
-        - "A neon glowing sword"
+        1. **Choose "Custom Colors"** mode
+        2. **Pick your colors** using the color pickers
+        3. **Describe the shape** in the text prompt
+        4. **Add reference images** for structure (optional)
+        5. **Generate!**
         
         ---
         
-        ### 🎨 Color Features:
-        - ✅ Auto color generation
-        - ✅ Text color extraction
-        - ✅ Image palette extraction
-        - ✅ Theme-based palettes
-        - ✅ Perfect AR display
+        ### 📝 Example Workflows:
         
-        ### 🔧 System Info:
-        - Models: Shap-E, CLIP
-        - Formats: GLB, OBJ, STL
-        - Texture: Up to 2048x2048
-        - AR: Full color support
+        **Red & Gold Dragon:**
+        - Mode: Custom Colors
+        - Colors: Red (#FF0000), Gold (#FFD700)
+        - Prompt: "A mystical dragon"
+        
+        **Blue Sports Car:**
+        - Mode: Custom Colors
+        - Colors: Blue (#0000FF), Silver (#C0C0C0)
+        - Prompt: "A sleek sports car"
+        
+        **Green & Brown Tree:**
+        - Mode: Custom Colors
+        - Colors: Green (#00FF00), Brown (#8B4513)
+        - Prompt: "A fantasy tree"
+        
+        ---
+        
+        ### 🎨 Color Modes:
+        
+        1. **Custom Colors** ⭐
+           - YOU choose exact colors
+           - Visual color picker
+           - Best for precise control
+        
+        2. **Auto-generate**
+           - AI picks based on text
+           - Theme-based palettes
+        
+        3. **Extract from Images**
+           - Colors from your photos
+           - Good for matching styles
+        
+        ---
+        
+        ### 📦 Output Formats:
+        - **GLB**: Best for AR (mobile)
+        - **OBJ**: Universal 3D format
+        - **Texture**: Color map image
+        - **Metadata**: Generation details
         """)
+        
+        st.markdown("---")
+        st.caption("Built with Shap-E, Trimesh, and Streamlit")
 
 if __name__ == "__main__":
     main()
